@@ -34,5 +34,11 @@
         "url_access_token": "https://www.linkedin.com/oauth/v2/accessToken",
         "url_resource_owner_details": "https://api.linkedin.com/v2/me",
         "scope": "r_liteprofile r_emailaddress"
-    }
+    },
+   "eb": {
+      "url_authorize": "https://acesso.dgp.eb.mil.br/authorize",
+      "url_access_token": "https://acesso.dgp.eb.mil.br/token",
+      "url_resource_owner_details": "https://acesso.dgp.eb.mil.br/token",
+      "scope": "INF_MIL_BASICO"
+   }
 }
