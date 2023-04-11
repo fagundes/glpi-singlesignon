@@ -1,0 +1,35 @@
+version: "3.2"
+
+services:
+  #MariaDB Container
+  mariadb:
+    image: mariadb:10.7
+    container_name: mariadb
+    hostname: mariadb
+    volumes:
+      - 'glpimariadb:/var/lib/mysql'
+    env_file:
+      - ./.env.mariadb
+    restart: always
+
+  #GLPI Container
+  glpi:
+    image: eb/glpi-local
+    container_name : glpi
+    hostname: glpi
+    build:
+      context: .docker/local
+      dockerfile: Dockerfile
+    ports:
+      - "8000:80"
+    volumes:
+      - ../glpi:/var/www/html/glpi
+      - '.:/var/www/html/glpi/plugins/singlesignon'
+    environment:
+      - TIMEZONE=America/Sao_Paulo
+    restart: always
+    depends_on:
+      - mariadb
+volumes:
+  glpimariadb:
+    driver: local
