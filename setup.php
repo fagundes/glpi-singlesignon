@@ -59,6 +59,27 @@ function plugin_init_singlesignon() {
    $PLUGIN_HOOKS['menu_toadd']['singlesignon'] = [
       'config'  => 'PluginSinglesignonProvider',
    ];
+
+   $PLUGIN_HOOKS['sso:find_user']['singlesignon'] = function($params) {
+
+      // o usuário precisa ser da DCEM
+      $entity = $params['INF_MIL_BASICO']['OM_CODOM'] ?? false;
+
+      // a identidade será usada como username
+      $name = $params['INF_MIL_BASICO']['MILITAR_IDENTIDADE'] ?? false;
+
+      if(!$name || $entity !== '045575') {
+         return false;
+      }
+
+      $user = new User();
+
+      if($user->getFromDBbyName($name)) {
+         return $user->fields['id'];
+      }
+
+      return false;
+   };
 }
 
 // Get the name and the version of the plugin - Needed

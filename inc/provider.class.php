@@ -1067,7 +1067,7 @@ class PluginSinglesignonProvider extends CommonDBTM
          $this->_token = $data['access_token'];
 
          // owner resource comes together with the token
-         if ($this->getClientType() == 'eb' ) {
+         if ($this->getClientType() == 'eb') {
             $this->_resource_owner = $data;
          }
       } catch (\Exception $ex) {
@@ -1096,7 +1096,7 @@ class PluginSinglesignonProvider extends CommonDBTM
       }
 
       // resource owner was obtained together with $token
-      if($this->_resource_owner !== null) {
+      if ($this->_resource_owner !== null) {
          return $this->_resource_owner;
       }
 
@@ -1194,8 +1194,6 @@ class PluginSinglesignonProvider extends CommonDBTM
          if (!empty($links) && $first = reset($links)) {
             $id = $first['users_id'];
          }
-
-         $remote_id;
       }
 
       if (is_numeric($id) && $user->getFromDB($id)) {
@@ -1272,97 +1270,11 @@ class PluginSinglesignonProvider extends CommonDBTM
          $default_condition = [];
       }
 
-      $bOk = true;
       if ($email && $user->getFromDBbyEmail($email, $default_condition)) {
          return $user;
-      } else {
-         $bOk = false;
       }
 
-      // var_dump($bOk);
-      // die();
-
-      // If the user does not exist in the database and the provider is generic (Ex: azure ad without common tenant)
-      if (static::getClientType() == "generic" && !$bOk) {
-         try {
-            // Generates an api token and a personal token... probably not necessary
-            $tokenAPI       = base_convert(hash('sha256', time() . mt_rand()), 16, 36);
-            $tokenPersonnel = base_convert(hash('sha256', time() . mt_rand()), 16, 36);
-
-            $splitname      = $this->fields['split_name'];
-            $firstLastArray = ($splitname) ? preg_split('/ /', $resource_array['name'], 2) : preg_split('/ /', $resource_array['displayName'], 2);
-
-            $userPost = [
-               'name'           => $login,
-               'add'            => 1,
-               'realname'       => $firstLastArray[1],
-               'firstname'      => $firstLastArray[0],
-               'api_token'      => $tokenAPI,
-               'personal_token' => $tokenPersonnel,
-               'is_active'      => 1,
-            ];
-
-            // Set the office location from Office 365 user as entity for the GLPI new user if they names match
-            if (isset($resource_array['officeLocation'])) {
-               global $DB;
-               foreach ($DB->request('glpi_entities') as $entity) {
-                  if ($entity['name'] == $resource_array['officeLocation']) {
-                     $userPost['entities_id'] = $entity['id'];
-                     break;
-                  }
-               }
-            }
-
-            if ($email) {
-               $userPost['_useremails'][-1] = $email;
-            }
-
-            //$user->check(-1, CREATE, $userPost);
-            $newID = $user->add($userPost);
-
-            // var_dump($newID);
-
-            $profils = 0;
-            // Verification default profiles exist in the entity
-            // If no default profile exists, the user will not be able to log in.
-            // In this case, we retrieve a profile and an entity and assign these values ​​to it.
-            // The administrator can change these values ​​later.
-            if (0 == Profile::getDefault()) {
-               // No default profiles
-               // Profile recovery and assignment
-               global $DB;
-
-               $datasProfiles = [];
-               foreach ($DB->request('glpi_profiles') as $data) {
-                  array_push($datasProfiles, $data);
-               }
-               $datasEntities = [];
-               foreach ($DB->request('glpi_entities') as $data) {
-                  array_push($datasEntities, $data);
-               }
-               if (count($datasProfiles) > 0 && count($datasEntities) > 0) {
-                  $profils = $datasProfiles[0]['id'];
-                  $entitie = $datasEntities[0]['id'];
-
-                  $profile                     = new Profile_User();
-                  $userProfile['users_id']     = intval($user->fields['id']);
-                  $userProfile['entities_id']  = intval($entitie);
-                  $userProfile['is_recursive'] = 0;
-                  $userProfile['profiles_id']  = intval($profils);
-                  $userProfile['add']          = "Ajouter";
-                  $profile->add($userProfile);
-               } else {
-                  return false;
-               }
-            }
-
-            return $user;
-         } catch (\Exception $ex) {
-            return false;
-         }
-      }
-
-      return false;
+      return $this->createUser($resource_array, $login, $email, $user);
    }
 
    public function login()
@@ -1428,5 +1340,138 @@ class PluginSinglesignonProvider extends CommonDBTM
          'users_id'                         => $user_id,
          'remote_id'                        => $remote_id,
       ]);
+   }
+
+   protected function createUser($resource_array, $login, $email, User $user)
+   {
+      switch (static::getClientType()) {
+         // If the user does not exist in the database and the provider is generic (Ex: azure ad without common tenant)
+         case 'generic':
+            return $this->createUserDefault($resource_array, $login, $email, $user);
+         case 'eb':
+            return $this->createUserEb($resource_array, $user);
+      }
+
+      return false;
+   }
+
+   protected function createUserDefault($resource_array, $login, $email, User $user)
+   {
+      try {
+         // Generates an api token and a personal token... probably not necessary
+         $tokenAPI       = base_convert(hash('sha256', time() . mt_rand()), 16, 36);
+         $tokenPersonnel = base_convert(hash('sha256', time() . mt_rand()), 16, 36);
+
+         $splitname      = $this->fields['split_name'];
+         $firstLastArray = ($splitname) ? preg_split('/ /', $resource_array['name'], 2) : preg_split('/ /', $resource_array['displayName'], 2);
+
+         $userPost = [
+            'name'           => $login,
+            'add'            => 1,
+            'realname'       => $firstLastArray[1],
+            'firstname'      => $firstLastArray[0],
+            'api_token'      => $tokenAPI,
+            'personal_token' => $tokenPersonnel,
+            'is_active'      => 1,
+         ];
+
+         // Set the office location from Office 365 user as entity for the GLPI new user if they names match
+         if (isset($resource_array['officeLocation'])) {
+            global $DB;
+            foreach ($DB->request('glpi_entities') as $entity) {
+               if ($entity['name'] == $resource_array['officeLocation']) {
+                  $userPost['entities_id'] = $entity['id'];
+                  break;
+               }
+            }
+         }
+
+         if ($email) {
+            $userPost['_useremails'][-1] = $email;
+         }
+
+         //$user->check(-1, CREATE, $userPost);
+         $newID = $user->add($userPost);
+
+         $profils = 0;
+         // Verification default profiles exist in the entity
+         // If no default profile exists, the user will not be able to log in.
+         // In this case, we retrieve a profile and an entity and assign these values to it.
+         // The administrator can change these values later.
+         if (0 == Profile::getDefault()) {
+            // No default profiles
+            // Profile recovery and assignment
+            global $DB;
+
+            $datasProfiles = [];
+            foreach ($DB->request('glpi_profiles') as $data) {
+               array_push($datasProfiles, $data);
+            }
+            $datasEntities = [];
+            foreach ($DB->request('glpi_entities') as $data) {
+               array_push($datasEntities, $data);
+            }
+            if (count($datasProfiles) > 0 && count($datasEntities) > 0) {
+               $profils = $datasProfiles[0]['id'];
+               $entitie = $datasEntities[0]['id'];
+
+               $profile                     = new Profile_User();
+               $userProfile['users_id']     = intval($user->fields['id']);
+               $userProfile['entities_id']  = intval($entitie);
+               $userProfile['is_recursive'] = 0;
+               $userProfile['profiles_id']  = intval($profils);
+               $userProfile['add']          = "Ajouter";
+               $profile->add($userProfile);
+            } else {
+               return false;
+            }
+         }
+
+         return $user;
+      } catch (\Exception $ex) {
+         return false;
+      }
+   }
+
+   protected function createUserEb($resource_array, User $user)
+   {
+      try {
+         $resource_array = $resource_array['INF_MIL_BASICO'];
+
+         // TODO getting email from resource
+         $userPost = [
+            'name'           => $resource_array['MILITAR_IDENTIDADE'],
+            'add'            => 1,
+            'realname'       => $resource_array['NOME_GUERRA'],
+            'firstname'      => $resource_array['POSTO_GRADUACAO_SIGLA'],
+            'is_active'      => 1,
+         ];
+
+         // o usuário precisa ser da DCEM
+         $entity = $resource_array['OM_CODOM'] ?? false;
+
+         if($entity !== '045575') {
+            return false;
+         }
+
+         // Set the office location from Office 365 user as entity for the GLPI new user if they names match
+         if (isset($resource_array['OM_SIGLA'])) {
+            global $DB;
+            foreach ($DB->request('glpi_entities') as $entity) {
+               if ($entity['name'] == $resource_array['OM_SIGLA']) {
+                  $userPost['entities_id'] = $entity['id'];
+                  break;
+               }
+            }
+         }
+
+         $user->add($userPost);
+
+         // TODO handling entity without default profile
+
+         return $user;
+      } catch (\Exception $ex) {
+         return false;
+      }
    }
 }
