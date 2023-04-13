@@ -45,7 +45,7 @@ function plugin_init_singlesignon() {
    }
 
    Plugin::registerClass('PluginSinglesignonPreference', [
-      'addtabon' => ['Preference', 'User']
+      'addtabon' => ['Preference', 'User'],
    ]);
 
    $PLUGIN_HOOKS['csrf_compliant']['singlesignon'] = true;
@@ -57,28 +57,90 @@ function plugin_init_singlesignon() {
    $PLUGIN_HOOKS['display_login']['singlesignon'] = "plugin_singlesignon_display_login";
 
    $PLUGIN_HOOKS['menu_toadd']['singlesignon'] = [
-      'config'  => 'PluginSinglesignonProvider',
+      'config' => 'PluginSinglesignonProvider',
    ];
 
-   $PLUGIN_HOOKS['sso:find_user']['singlesignon'] = function($params) {
+   $PLUGIN_HOOKS['sso:find_user']['singlesignon'] = function ($resourceOwner) {
 
-      // o usuário precisa ser da DCEM
-      $entity = $params['INF_MIL_BASICO']['OM_CODOM'] ?? false;
+      if (($resourceOwner['type'] ?? false) !== 'eb') {
+         return false;
+      }
 
-      // a identidade será usada como username
-      $name = $params['INF_MIL_BASICO']['MILITAR_IDENTIDADE'] ?? false;
+      $entity = $resourceOwner['entity_cod'] ?? false;
+      $name   = $resourceOwner['username'] ?? false;
 
-      if(!$name || $entity !== '045575') {
+      if (!$name || $entity !== '045575') {
          return false;
       }
 
       $user = new User();
 
-      if($user->getFromDBbyName($name)) {
+      if ($user->getFromDBbyName($name)) {
          return $user->fields['id'];
       }
 
       return false;
+   };
+
+   $PLUGIN_HOOKS['sso:set_resource_owner']['singlesignon'] = function ($params) {
+
+      $provider      = $params['provider'];
+      $resourceOwner = $params['resourceOwner'];
+
+      if ($provider->getClientType() === 'eb') {
+         $params['resourceOwner'] = [
+            'type'       => 'eb',
+            'name'       => $resourceOwner['INF_MIL_BASICO']['MILITAR_IDENTIDADE'],
+            'username'   => $resourceOwner['INF_MIL_BASICO']['MILITAR_IDENTIDADE'],
+            'realname'   => $resourceOwner['INF_MIL_BASICO']['NOME_GUERRA'],
+            'firstname'  => $resourceOwner['INF_MIL_BASICO']['POSTO_GRADUACAO_SIGLA'],
+            'entity'     => $resourceOwner['INF_MIL_BASICO']['OM_SIGLA'],
+            'entity_cod' => $resourceOwner['INF_MIL_BASICO']['OM_CODOM'],
+         ];
+      }
+
+      return $params;
+   };
+
+   $PLUGIN_HOOKS['sso:create_user']['singlesignon'] = function ($params) {
+
+      $provider      = $params['provider'];
+      $resourceOwner = $params['resourceOwner'];
+      $user          = $params['user'];
+
+      if ($provider->getClientType() !== 'eb') {
+         return false;
+      }
+
+      // TODO getting email from resource
+      $userPost = [
+         'name'      => $resourceOwner['name'],
+         'add'       => 1,
+         'realname'  => $resourceOwner['realname'],
+         'firstname' => $resourceOwner['firstname'],
+         'is_active' => 1,
+      ];
+
+      // o usuário precisa ser da DCEM
+      if (($resourceOwner['entity_cod'] ?? false) !== '045575') {
+         return false;
+      }
+
+      if (isset($resourceOwner['entity'])) {
+         global $DB;
+         foreach ($DB->request('glpi_entities') as $entity) {
+            if ($entity['name'] == $resourceOwner['entity']) {
+               $userPost['entities_id'] = $entity['id'];
+               break;
+            }
+         }
+      }
+
+      $user->add($userPost);
+
+      // TODO handling entity without default profile
+
+      return $user;
    };
 }
 
@@ -89,7 +151,7 @@ function plugin_version_singlesignon() {
       'version'        => PLUGIN_SINGLESIGNON_VERSION,
       'author'         => 'Edgard Lorraine Messias',
       'homepage'       => 'https://github.com/edgardmessias/glpi-singlesignon',
-      'minGlpiVersion' => '0.85'
+      'minGlpiVersion' => '0.85',
    ];
 }
 
@@ -97,10 +159,10 @@ function plugin_version_singlesignon() {
 function plugin_singlesignon_check_prerequisites() {
    $autoload = __DIR__ . '/vendor/autoload.php';
 
-   // if (!file_exists($autoload)) {
-   //    echo __sso("Run first: composer install");
-   //    return false;
-   // }
+   if (!file_exists($autoload)) {
+      echo __sso("Run first: composer install");
+      return false;
+   }
    if (version_compare(GLPI_VERSION, '0.85', 'lt')) {
       echo __sso("This plugin requires GLPI >= 0.85");
       return false;
